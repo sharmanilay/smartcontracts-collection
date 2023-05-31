@@ -70,5 +70,55 @@ contract SimpleAuction {
     }
     highestBidder = msg.sender;
     highestBid = msg.value;
+    emit HighestBidIncreased(msg.sender, msg.value);
+  }
+
+  /// Withdraw a bid that was overbid.
+  function withdraw() external returns (bool) {
+    uint amount = pendingReturns[msg.sender];
+    if (amount > 0) {
+      // It is important to set this to zero because the recipient can call this function again
+      // as a part of the receiving call before `send` returns.
+      pendingReturns[msg.sender] = 0;
+      
+      // msg.sender is not of type `address payable` and must be explicitly converted
+      // using `payable(msg.sender)` in order to use the member function `send()`.
+      if (!payable(msg.sender).send(amount)) {
+        // No need to call throw here, just reset the amount owing
+        pendingReturns[msg.sender] = amount;
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // End the auction and send the highest bid to the beneficiary
+  function auctionEnd() external {
+    /*
+    It is a good guideline to structure functions that  interact
+    with other contracts (i.e they call functions or send Ether)
+    into 3 phases:
+    1. Checking Conditions
+    2. Performing actions (potentially changing conditions)
+    3. Interacting with other contracts
+    If these phases are mixed up, the other contracts could call back
+    into the current contract and modify the state or cause effects (ether payput)
+    to be performed multiple times.
+    If functions called internally include interaction with external contracts,
+    they also have to be considered interaction with external contracts.
+    */
+    
+    // 1. Conditons
+    if (block.timestamp < auctionEndTime)
+      revert AuctionNotYetEnded();
+    if (ended)
+      revert AuctionEndAlreadyCalled();
+
+    // 2. Effects
+    ended = true;
+    emit AuctionEnded(highestBidder, highestBid);
+
+    // 3. Interaction
+    beneficiary.transfer(highestBid);
   }
 }
