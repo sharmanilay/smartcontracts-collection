@@ -31,7 +31,7 @@ contract BlindAuction {
   /// It cannot be called after `time`.
   error TooLate(uint time);
   /// The function auctionEnd has already been called.
-  error AuctionEndedAlreadyCalled();
+  error AuctionEndAlreadyCalled();
 
   // Modifiers are a convenient way to validate inputs to functions.
   // `onlyBefore` is applied to `bid` below: The new function body is the modifier's body where `_` is replaced by the old function body
@@ -75,7 +75,56 @@ contract BlindAuction {
 
     uint refund;
     for (uint i = 0; i<length; i++) {
-      Bid storage
+      Bid storage bidToCheck = bids[msg.sender][i];
+      (uint value, bool fake, bytes32 secret) = (values[i], fakes[i], secrets[i]);
+      if (bidToCheck.blindedBid != keccak256(abi.encodePacked(value, fake, secret))) {
+        // Bid was not actually revealed.
+        // Do not refund deposit/
+        continue;
+      }
+      refund += bidToCheck.deposit;
+      if (!fake && bidToCheck.deposit >= value) {
+        if (placeBid(msg.sender, value))
+          refund -= value;
+      }
+      // Make it impossible for the sender to re-claim the same deposit
+      bidToCheck.blindedBid = bytes32(0);
     }
+    payable(msg.sender).transfer(refund);
+  }
+
+  /// Withdraw a bid that was overbid
+  function withdraw() external {
+    uint amount = pendingReturns[msg.sender];
+    if (amount > 0) {
+      // It is important to set this to zero because the recipient
+      // can call this function again as a part of the receiving call
+      // before `transfer` returns 
+      pendingReturns[msg.sender] = 0;
+      payable(msg.sender).transfer(amount);
+    }
+  }
+
+  /// End the auction and send the highest bid to the beneficiary.
+  function auctionEnd() external onlyAfter(revealEnd) {
+    if (ended) revert AuctionEndAlreadyCalled();
+    emit AuctionEnded(highestBidder, highestBid); 
+    ended = true;
+    beneficiary.transfer(highestBid);
+  }
+
+  // This is an "internal" function which means that it can only
+  // be called from the contract itself (or from derieved contracts).
+  function placeBid (address bidder, uint value) internal returns (bool success) {
+    if (value <= highestBid) {
+      return false;
+    }
+    if (highestBidder != address(0)) {
+      // Refund the previously highest bidder.
+      pendingReturns[highestBidder] += highestBid;
+    }
+    highestBid = value;
+    highestBidder = bidder;
+    return true;
   }
 }
