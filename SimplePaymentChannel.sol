@@ -30,5 +30,19 @@ contract SimplePaymentChannel {
 
     expiration = newExpiration;
   }
+
+  /// If the timeout is reached without the recipient closing the channel, then the ether is released back to the sender.
+  function claimTimeout() external {
+    require(block.timestamp >= expiration);
+    selfdestruct(sender);
+  }
+
+  function isValidSignature(uint256 amount, bytes memory signature) internal view returns (bool) {
+    bytes32 message = prefixed(keccak256(abi.encodePacked(this, amount);))
+
+    // check that the signature is from the payment sender
+    return recoverSigner(message, signature) == sender;
+  }
+
   
 }
